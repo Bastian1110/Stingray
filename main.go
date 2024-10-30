@@ -22,6 +22,39 @@ func zeroMatrix(rows, cols int) *mat.Dense {
 	return mat.NewDense(rows, cols, nil)
 }
 
+func meanSquaredError(expected, predicted *mat.Dense) float64 {
+	rows, cols := expected.Dims()
+	if r, c := predicted.Dims(); r != rows || c != cols {
+		panic("matrices must have the same dimensions")
+	}
+
+	var sum float64
+	for i := 0; i < rows; i++ {
+		for j := 0; j < cols; j++ {
+			diff := expected.At(i, j) - predicted.At(i, j)
+			sum += diff * diff
+		}
+	}
+
+	mean := sum / float64(rows*cols)
+	return mean
+}
+
+func sumAlongAxis0(matrix *mat.Dense) *mat.Dense {
+	rows, cols := matrix.Dims()
+	result := mat.NewDense(1, cols, nil)
+
+	for j := 0; j < cols; j++ {
+		var sum float64
+		for i := 0; i < rows; i++ {
+			sum += matrix.At(i, j)
+		}
+		result.Set(0, j, sum)
+	}
+
+	return result
+}
+
 func ReLU(matrix *mat.Dense) *mat.Dense {
 	rows, cols := matrix.Dims()
 	result := mat.NewDense(rows, cols, nil)
@@ -32,6 +65,24 @@ func ReLU(matrix *mat.Dense) *mat.Dense {
 			result.Set(i, j, math.Max(0, value))
 		}
 	}
+	return result
+}
+
+func ReLUDerivative(matrix *mat.Dense) *mat.Dense {
+	rows, cols := matrix.Dims()
+	result := mat.NewDense(rows, cols, nil)
+
+	for i := 0; i < rows; i++ {
+		for j := 0; j < cols; j++ {
+			value := matrix.At(i, j)
+			if value > 0 {
+				result.Set(i, j, 1)
+			} else {
+				result.Set(i, j, 0)
+			}
+		}
+	}
+
 	return result
 }
 
@@ -61,12 +112,16 @@ func forwardLayer(x *mat.Dense, weights *mat.Dense, bias *mat.Dense, b activatio
 }
 
 func main() {
-	data := []float64{
+	iterations := 10
+	learning_rate := []float64{100}
+
+	dataX := []float64{
 		1, 0,
 	}
+	input := mat.NewDense(1, 2, dataX)
 
-	// Create a 2x2 matrix with the provided data
-	input := mat.NewDense(1, 2, data)
+	dataY := []float64{1}
+	expextedOutput := mat.NewDense(1, 1, dataY)
 
 	weights_input_to_hidden_one := randomMatrix(2, 3)
 	bias_hidden_one := zeroMatrix(1, 3)
@@ -77,16 +132,64 @@ func main() {
 	weights_hidden_two_to_output := randomMatrix(3, 1)
 	bias_output := zeroMatrix(1, 1)
 
-	fmt.Printf("Matrix:\n%v\n", mat.Formatted(weights_input_to_hidden_one, mat.Prefix(" "), mat.Excerpt(0)))
-	fmt.Printf("Matrix:\n%v\n", mat.Formatted(bias_hidden_one, mat.Prefix(" "), mat.Excerpt(0)))
+	for i := 0; i <= iterations; i++ {
+		fmt.Println("Iteration : ", i)
 
-	fmt.Printf("Matrix:\n%v\n", mat.Formatted(weights_hidden_one_to_hidden_two, mat.Prefix(" "), mat.Excerpt(0)))
-	fmt.Printf("Matrix:\n%v\n", mat.Formatted(bias_hidden_two, mat.Prefix(" "), mat.Excerpt(0)))
+		fmt.Println("Input : ", input)
+		result_hidden_one := forwardLayer(input, weights_input_to_hidden_one, bias_hidden_one, ReLU)
+		result_hidden_two := forwardLayer(result_hidden_one, weights_hidden_one_to_hidden_two, bias_hidden_two, ReLU)
+		result_output := forwardLayer(result_hidden_two, weights_hidden_two_to_output, bias_output, Sigmoid)
 
-	fmt.Printf("Matrix:\n%v\n", mat.Formatted(weights_hidden_two_to_output, mat.Prefix(" "), mat.Excerpt(0)))
-	fmt.Printf("Matrix:\n%v\n", mat.Formatted(bias_output, mat.Prefix(" "), mat.Excerpt(0)))
+		fmt.Printf("Pediction :\n%v\n", mat.Formatted(result_output, mat.Prefix(" "), mat.Excerpt(0)))
 
-	result_hidden_one := forwardLayer(input, weights_input_to_hidden_one, bias_hidden_one, ReLU)
-	fmt.Printf("Res:\n%v\n", mat.Formatted(result_hidden_one, mat.Prefix(" "), mat.Excerpt(0)))
+		loss := meanSquaredError(expextedOutput, result_output)
+		fmt.Printf("Loss :\n%v\n", loss)
 
+		// Backprop
+		var gradient_sum_output mat.Dense
+		gradient_sum_output.Sub(result_output, expextedOutput)
+		var gradient_output_to_hidden_two mat.Dense
+		gradient_output_to_hidden_two.Mul(result_hidden_two.T(), &gradient_sum_output)
+		gradient_bias_output := sumAlongAxis0(&gradient_sum_output)
+
+		var gradient_sum_hidden_two mat.Dense
+		gradient_sum_hidden_two.Mul(&gradient_sum_output, weights_hidden_two_to_output.T())
+		gradient_sum_hidden_two.MulElem(&gradient_sum_hidden_two, ReLUDerivative(result_hidden_two))
+		var gradient_hidden_one_to_hidden_two mat.Dense
+		gradient_hidden_one_to_hidden_two.Mul(result_hidden_one.T(), &gradient_sum_hidden_two)
+		gradient_bias_hidden_two := sumAlongAxis0(&gradient_sum_hidden_two)
+
+		var gradient_sum_hidden_one mat.Dense
+		gradient_sum_hidden_one.Mul(&gradient_sum_hidden_two, weights_hidden_one_to_hidden_two.T())
+		gradient_sum_hidden_one.MulElem(&gradient_sum_hidden_one, ReLUDerivative(result_hidden_one))
+		var gradient_input_to_hidden_one mat.Dense
+		gradient_input_to_hidden_one.Mul(input.T(), &gradient_sum_hidden_one)
+		gradient_bias_hidden_one := sumAlongAxis0(&gradient_sum_hidden_one)
+
+		// Update weights
+		var temp_input_to_hidden_one mat.Dense
+		temp_input_to_hidden_one.Scale(learning_rate[0], &gradient_input_to_hidden_one)
+		weights_input_to_hidden_one.Sub(weights_input_to_hidden_one, &temp_input_to_hidden_one)
+
+		var temp_hidden_one_to_hidden_two mat.Dense
+		temp_hidden_one_to_hidden_two.Scale(learning_rate[0], &gradient_hidden_one_to_hidden_two)
+		weights_hidden_one_to_hidden_two.Sub(weights_hidden_one_to_hidden_two, &temp_hidden_one_to_hidden_two)
+
+		var temp_hidden_two_to_output mat.Dense
+		temp_hidden_two_to_output.Scale(learning_rate[0], &gradient_output_to_hidden_two)
+		weights_hidden_two_to_output.Sub(weights_hidden_two_to_output, &temp_hidden_two_to_output)
+
+		// Update biases
+		var temp_bias_hidden_one mat.Dense
+		temp_bias_hidden_one.Scale(learning_rate[0], gradient_bias_hidden_one)
+		bias_hidden_one.Sub(bias_hidden_one, &temp_bias_hidden_one)
+
+		var temp_bias_hidden_two mat.Dense
+		temp_bias_hidden_two.Scale(learning_rate[0], gradient_bias_hidden_two)
+		bias_hidden_two.Sub(bias_hidden_two, &temp_bias_hidden_two)
+
+		var temp_bias_output mat.Dense
+		temp_bias_output.Scale(learning_rate[0], gradient_bias_output)
+		bias_output.Sub(bias_output, &temp_bias_output)
+	}
 }
