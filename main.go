@@ -117,11 +117,14 @@ func main() {
 
 	dataX := []float64{
 		1, 0,
+		0, 1,
+		1, 1,
+		0, 0,
 	}
-	input := mat.NewDense(1, 2, dataX)
+	input := mat.NewDense(4, 2, dataX)
 
-	dataY := []float64{1}
-	expextedOutput := mat.NewDense(1, 1, dataY)
+	dataY := []float64{1, 1, 0, 0}
+	expectedOutput := mat.NewDense(4, 1, dataY)
 
 	weights_input_to_hidden_one := randomMatrix(2, 3)
 	bias_hidden_one := zeroMatrix(1, 3)
@@ -134,62 +137,72 @@ func main() {
 
 	for i := 0; i <= iterations; i++ {
 		fmt.Println("Iteration : ", i)
+		for i := 0; i < input.RawMatrix().Rows; i++ {
+			sampleInput := mat.NewDense(1, input.RawMatrix().Cols, mat.Row(nil, i, input))
+			targetOutput := mat.NewDense(1, 1, []float64{expectedOutput.At(i, 0)})
 
-		fmt.Println("Input : ", input)
-		result_hidden_one := forwardLayer(input, weights_input_to_hidden_one, bias_hidden_one, ReLU)
-		result_hidden_two := forwardLayer(result_hidden_one, weights_hidden_one_to_hidden_two, bias_hidden_two, ReLU)
-		result_output := forwardLayer(result_hidden_two, weights_hidden_two_to_output, bias_output, Sigmoid)
+			fmt.Printf("Sample Input: %v -> Target Output: %v\n", mat.Formatted(sampleInput), mat.Formatted(targetOutput))
 
-		fmt.Printf("Pediction :\n%v\n", mat.Formatted(result_output, mat.Prefix(" "), mat.Excerpt(0)))
+			result_hidden_one := forwardLayer(sampleInput, weights_input_to_hidden_one, bias_hidden_one, ReLU)
+			result_hidden_two := forwardLayer(result_hidden_one, weights_hidden_one_to_hidden_two, bias_hidden_two, ReLU)
+			result_output := forwardLayer(result_hidden_two, weights_hidden_two_to_output, bias_output, Sigmoid)
 
-		loss := meanSquaredError(expextedOutput, result_output)
-		fmt.Printf("Loss :\n%v\n", loss)
+			fmt.Print("Pediction : ")
+			if result_output.At(0, 0) < 0.3 {
+				fmt.Println("0")
+			} else {
+				fmt.Println("1")
+			}
 
-		// Backprop
-		var gradient_sum_output mat.Dense
-		gradient_sum_output.Sub(result_output, expextedOutput)
-		var gradient_output_to_hidden_two mat.Dense
-		gradient_output_to_hidden_two.Mul(result_hidden_two.T(), &gradient_sum_output)
-		gradient_bias_output := sumAlongAxis0(&gradient_sum_output)
+			loss := meanSquaredError(targetOutput, result_output)
+			fmt.Printf("Loss : %v\n", loss)
 
-		var gradient_sum_hidden_two mat.Dense
-		gradient_sum_hidden_two.Mul(&gradient_sum_output, weights_hidden_two_to_output.T())
-		gradient_sum_hidden_two.MulElem(&gradient_sum_hidden_two, ReLUDerivative(result_hidden_two))
-		var gradient_hidden_one_to_hidden_two mat.Dense
-		gradient_hidden_one_to_hidden_two.Mul(result_hidden_one.T(), &gradient_sum_hidden_two)
-		gradient_bias_hidden_two := sumAlongAxis0(&gradient_sum_hidden_two)
+			// Backprop
+			var gradient_sum_output mat.Dense
+			gradient_sum_output.Sub(result_output, targetOutput)
+			var gradient_output_to_hidden_two mat.Dense
+			gradient_output_to_hidden_two.Mul(result_hidden_two.T(), &gradient_sum_output)
+			gradient_bias_output := sumAlongAxis0(&gradient_sum_output)
 
-		var gradient_sum_hidden_one mat.Dense
-		gradient_sum_hidden_one.Mul(&gradient_sum_hidden_two, weights_hidden_one_to_hidden_two.T())
-		gradient_sum_hidden_one.MulElem(&gradient_sum_hidden_one, ReLUDerivative(result_hidden_one))
-		var gradient_input_to_hidden_one mat.Dense
-		gradient_input_to_hidden_one.Mul(input.T(), &gradient_sum_hidden_one)
-		gradient_bias_hidden_one := sumAlongAxis0(&gradient_sum_hidden_one)
+			var gradient_sum_hidden_two mat.Dense
+			gradient_sum_hidden_two.Mul(&gradient_sum_output, weights_hidden_two_to_output.T())
+			gradient_sum_hidden_two.MulElem(&gradient_sum_hidden_two, ReLUDerivative(result_hidden_two))
+			var gradient_hidden_one_to_hidden_two mat.Dense
+			gradient_hidden_one_to_hidden_two.Mul(result_hidden_one.T(), &gradient_sum_hidden_two)
+			gradient_bias_hidden_two := sumAlongAxis0(&gradient_sum_hidden_two)
 
-		// Update weights
-		var temp_input_to_hidden_one mat.Dense
-		temp_input_to_hidden_one.Scale(learning_rate[0], &gradient_input_to_hidden_one)
-		weights_input_to_hidden_one.Sub(weights_input_to_hidden_one, &temp_input_to_hidden_one)
+			var gradient_sum_hidden_one mat.Dense
+			gradient_sum_hidden_one.Mul(&gradient_sum_hidden_two, weights_hidden_one_to_hidden_two.T())
+			gradient_sum_hidden_one.MulElem(&gradient_sum_hidden_one, ReLUDerivative(result_hidden_one))
+			var gradient_input_to_hidden_one mat.Dense
+			gradient_input_to_hidden_one.Mul(sampleInput.T(), &gradient_sum_hidden_one)
+			gradient_bias_hidden_one := sumAlongAxis0(&gradient_sum_hidden_one)
 
-		var temp_hidden_one_to_hidden_two mat.Dense
-		temp_hidden_one_to_hidden_two.Scale(learning_rate[0], &gradient_hidden_one_to_hidden_two)
-		weights_hidden_one_to_hidden_two.Sub(weights_hidden_one_to_hidden_two, &temp_hidden_one_to_hidden_two)
+			// Update weights
+			var temp_input_to_hidden_one mat.Dense
+			temp_input_to_hidden_one.Scale(learning_rate[0], &gradient_input_to_hidden_one)
+			weights_input_to_hidden_one.Sub(weights_input_to_hidden_one, &temp_input_to_hidden_one)
 
-		var temp_hidden_two_to_output mat.Dense
-		temp_hidden_two_to_output.Scale(learning_rate[0], &gradient_output_to_hidden_two)
-		weights_hidden_two_to_output.Sub(weights_hidden_two_to_output, &temp_hidden_two_to_output)
+			var temp_hidden_one_to_hidden_two mat.Dense
+			temp_hidden_one_to_hidden_two.Scale(learning_rate[0], &gradient_hidden_one_to_hidden_two)
+			weights_hidden_one_to_hidden_two.Sub(weights_hidden_one_to_hidden_two, &temp_hidden_one_to_hidden_two)
 
-		// Update biases
-		var temp_bias_hidden_one mat.Dense
-		temp_bias_hidden_one.Scale(learning_rate[0], gradient_bias_hidden_one)
-		bias_hidden_one.Sub(bias_hidden_one, &temp_bias_hidden_one)
+			var temp_hidden_two_to_output mat.Dense
+			temp_hidden_two_to_output.Scale(learning_rate[0], &gradient_output_to_hidden_two)
+			weights_hidden_two_to_output.Sub(weights_hidden_two_to_output, &temp_hidden_two_to_output)
 
-		var temp_bias_hidden_two mat.Dense
-		temp_bias_hidden_two.Scale(learning_rate[0], gradient_bias_hidden_two)
-		bias_hidden_two.Sub(bias_hidden_two, &temp_bias_hidden_two)
+			// Update biases
+			var temp_bias_hidden_one mat.Dense
+			temp_bias_hidden_one.Scale(learning_rate[0], gradient_bias_hidden_one)
+			bias_hidden_one.Sub(bias_hidden_one, &temp_bias_hidden_one)
 
-		var temp_bias_output mat.Dense
-		temp_bias_output.Scale(learning_rate[0], gradient_bias_output)
-		bias_output.Sub(bias_output, &temp_bias_output)
+			var temp_bias_hidden_two mat.Dense
+			temp_bias_hidden_two.Scale(learning_rate[0], gradient_bias_hidden_two)
+			bias_hidden_two.Sub(bias_hidden_two, &temp_bias_hidden_two)
+
+			var temp_bias_output mat.Dense
+			temp_bias_output.Scale(learning_rate[0], gradient_bias_output)
+			bias_output.Sub(bias_output, &temp_bias_output)
+		}
 	}
 }
