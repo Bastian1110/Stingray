@@ -1,4 +1,4 @@
-package main
+package stingray
 
 import (
 	"fmt"
@@ -7,6 +7,10 @@ import (
 
 	"gonum.org/v1/gonum/mat"
 )
+
+func Hello() {
+	fmt.Println("Stingray 🦈")
+}
 
 type activation func(*mat.Dense) *mat.Dense
 

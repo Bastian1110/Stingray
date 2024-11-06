@@ -1,4 +1,4 @@
-module github.com/Bastian1110/Simp
+module github.com/Bastian1110/Stingray
 
 go 1.23.2
 
